@@ -37,6 +37,14 @@ module Zdice
       ]
     end
 
+    def count
+      @dice.size
+    end
+
+    def <<(die)
+      @dice << die
+    end
+
     def pick
       if @dice.size == 0
         raise 'No dice left in cup'

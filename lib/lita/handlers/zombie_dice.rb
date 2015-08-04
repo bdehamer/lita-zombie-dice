@@ -7,51 +7,96 @@ module Lita
       route(/^new-game/, :new_game)
       route(/^roll/, :roll)
       route(/^pass/, :pass)
-      route(/^score/, :score)
 
       def new_game(response)
-        response.reply('yo yo yo')
-        player = Zdice::Player.new
-        save_player(player)
+        if response.args
+          save_player_list(response.args)
+          response.args.each do |arg|
+            save_player(Zdice::Player.new(arg))
+          end
+        else
+          save_player(Zdice::Player.new(response.user.mention_name))
+        end
+
+        player = current_player
+        response.reply("#{player.name}'s turn")
       end
 
       def roll(response)
-        player = get_player
+        return unless pre(response)
+
+        player = current_player
         hand = player.roll 
         response.reply("(#{hand[0]}) (#{hand[1]}) (#{hand[2]})")
 
         if player.blasted?
+          end_turn(player)
           response.reply("You're dead!")
-          player.end_turn
+          sleep(1.0/2.0)
+          response.reply("#{current_player.name}'s turn")
+        else
+          save_player(player)
         end
-
-        if player.score >= 13
-          response.reply("You win!")
-          player.end_turn
-        end
-
-        save_player(player)
       end
 
       def pass(response)
-        player = get_player
+        return unless pre(response)
+
+        player = current_player
+        end_turn(player)
+        response.reply("#{player.name}'s score: #{player.score}")
+        sleep(1.0/2.0)
+        response.reply("#{current_player.name}'s turn")
+      end
+
+      def end_turn(player)
         player.end_turn
-        player.start_turn
         save_player(player)
+        rotate_players
       end
 
-      def score(response)
-        player = get_player
-        response.reply("Score: #{player.score}")
+      def pre(response)
+        ok = true
+        player = current_player
+
+        if current_player.name != response.user.mention_name
+          response.reply("#{response.user.mention_name}, it's not your turn!")
+          ok = false
+        end
+
+        ok
       end
 
-      def get_player
-        p = JSON.parse(redis.get("players/1"))
+      def save_player_list(players=[])
+        redis.del("player_list")
+        redis.del("current_player")
+        players.each do |p|
+          redis.rpush("player_list", p)
+          redis.rpush("current_player", p)
+        end
+      end
+
+      def get_player_list
+        redis.get("player_list")
+      end
+
+      def rotate_players
+        name = redis.lpop("current_player")
+        redis.rpush("current_player", name)
+      end
+
+      def current_player
+        name = redis.lrange("current_player", 0, 0).first
+        get_player(name)
+      end
+
+      def get_player(name="default")
+        p = JSON.parse(redis.get("players/#{name}"))
         Zdice::Player.json_create(p)
       end
 
       def save_player(player)
-        redis.set("players/1", player.as_json.to_json)
+        redis.set("players/#{player.name}", player.as_json.to_json)
       end
     end
 
